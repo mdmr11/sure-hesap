@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Süre Hesap</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --fg: var(--tg-theme-text-color, #1c1c1e);
+    --ipucu: var(--tg-theme-hint-color, #8e8e93);
+    --alan: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --vurgu: var(--tg-theme-button-color, #2481cc);
+    --vurgu-yazi: var(--tg-theme-button-text-color, #ffffff);
+    --hata: #d93025;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: var(--tg-theme-bg-color, #1c1c1e); --fg: var(--tg-theme-text-color, #f2f2f7);
+            --alan: var(--tg-theme-secondary-bg-color, #2c2c2e); --ipucu: var(--tg-theme-hint-color, #98989f); }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px 16px 96px; background: var(--bg); color: var(--fg);
+         font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  .alan { margin: 0 0 14px; }
+  .alan[hidden] { display: none; }
+  label { display: block; font-size: 13px; color: var(--ipucu); margin: 0 0 6px; }
+  input, select { width: 100%; font: inherit; color: var(--fg); background: var(--alan);
+    border: 1px solid transparent; border-radius: 10px; padding: 12px; min-height: 46px;
+    -webkit-appearance: none; appearance: none; }
+  input[type=checkbox] { width: 22px; min-height: 22px; height: 22px; padding: 0; vertical-align: middle;
+    -webkit-appearance: checkbox; appearance: auto; }
+  .yan { display: flex; gap: 10px; }
+  .yan > * { flex: 1; }
+  .secim { display: flex; gap: 8px; }
+  .secim label { flex: 1; margin: 0; padding: 12px; text-align: center; border-radius: 10px;
+    background: var(--alan); color: var(--fg); font-size: 15px; }
+  .secim input { display: none; }
+  .secim input:checked + span { font-weight: 600; color: var(--vurgu); }
+  .bilgi { font-size: 13px; color: var(--ipucu); margin: -6px 0 14px; }
+  .hata { color: var(--hata); font-size: 13px; margin-top: 4px; min-height: 0; }
+  .hatali input, .hatali select { border-color: var(--hata); }
+  button { width: 100%; font: inherit; font-weight: 600; border: 0; border-radius: 10px;
+    padding: 14px; background: var(--vurgu); color: var(--vurgu-yazi); }
+  pre:empty { display: none; }
+  pre { white-space: pre-wrap; font-size: 12px; background: var(--alan); padding: 10px; border-radius: 10px; }
+  #surum { font-size: 11px; color: var(--ipucu); margin-top: 16px; }
+</style>
+</head>
+<body>
+<h1>⏱️ Süre hesabı</h1>
+<form id="form" novalidate>
+  <div class="alan" id="a_kol">
+    <label for="kol">Yargı kolu</label>
+    <select id="kol"></select>
+  </div>
+  <div class="alan" id="a_kod">
+    <label for="kod">İşlem</label>
+    <select id="kod"></select>
+    <div class="hata" id="h_kod"></div>
+  </div>
+  <div class="bilgi" id="kural_bilgi"></div>
+  <div class="alan yan" id="a_serbest" hidden>
+    <div><label for="miktar">Süre</label><input id="miktar" type="number" inputmode="numeric" min="1" max="999" placeholder="10"></div>
+    <div><label for="birim">Birim</label>
+      <select id="birim"><option value="gun">gün</option><option value="hafta">hafta</option>
+        <option value="ay">ay</option><option value="yil">yıl</option></select></div>
+  </div>
+  <div class="hata" id="h_miktar"></div>
+  <div class="alan">
+    <label>Tebliğ türü</label>
+    <div class="secim">
+      <label><input type="radio" name="tur" id="tur_f" value="f" checked><span>📬 Fiziki tebliğ</span></label>
+      <label><input type="radio" name="tur" id="tur_e" value="e"><span>📧 E-tebligat</span></label>
+    </div>
+  </div>
+  <div class="alan" id="a_tarih">
+    <label for="tarih" id="l_tarih">Başlangıç / tebliğ tarihi</label>
+    <input id="tarih" type="date">
+    <div class="hata" id="h_tarih"></div>
+  </div>
+  <div class="alan" id="a_353" hidden>
+    <label><input type="checkbox" id="b353"> TBK 353: kiraya veren dava açacağını süresinde yazılı bildirdi</label>
+  </div>
+  <button id="gonder" type="submit">Hesapla</button>
+</form>
+<pre id="onizleme"></pre>
+<div id="surum"></div>
+<script>
+(function () {
+  "use strict";
+  var SURUM = "2026-11-19.1";
+  var KOLLAR = [["hukuk","Hukuk (HMK)"],["icra","\u0130cra (\u0130\u0130K)"],["idari","\u0130dari (\u0130YUK)"],["ceza","Ceza (CMK)"],["tahliye","Kira / Tahliye (TBK\u2013\u0130\u0130K)"]];
+  var KURALLAR = [{"kod":"S-1","kol":"hukuk","islem":"Cevap dilek\u00e7esi (yaz\u0131l\u0131 yarg\u0131lama)","baslangic":"Dava dilek\u00e7esinin tebli\u011fi","dayanak":"HMK 127","tbk353":false},{"kod":"S-2","kol":"hukuk","islem":"Cevap dilek\u00e7esi ek s\u00fcresi (\u00fcst s\u0131n\u0131r)","baslangic":"\u0130lk cevap s\u00fcresinin bitimi","dayanak":"HMK 127","tbk353":false},{"kod":"S-3","kol":"hukuk","islem":"Cevaba cevap / ikinci cevap","baslangic":"\u0130lgili dilek\u00e7enin tebli\u011fi","dayanak":"HMK 136","tbk353":false},{"kod":"S-4","kol":"hukuk","islem":"Cevap dilek\u00e7esi (basit yarg\u0131lama)","baslangic":"Dava dilek\u00e7esinin tebli\u011fi","dayanak":"HMK 317/2","tbk353":false},{"kod":"S-4E","kol":"hukuk","islem":"Basit yarg\u0131lama cevap ek s\u00fcresi (\u00fcst s\u0131n\u0131r)","baslangic":"\u0130lk cevap s\u00fcresinin bitimi","dayanak":"HMK 317/2","tbk353":false},{"kod":"S-5","kol":"hukuk","islem":"\u0130stinaf","baslangic":"Gerek\u00e7eli karar\u0131n tebli\u011fi","dayanak":"HMK 345","tbk353":false},{"kod":"S-6","kol":"hukuk","islem":"\u0130stinafa cevap","baslangic":"\u0130stinaf dilek\u00e7esinin tebli\u011fi","dayanak":"HMK 347/2","tbk353":false},{"kod":"S-7","kol":"hukuk","islem":"Temyiz","baslangic":"BAM karar\u0131n\u0131n tebli\u011fi","dayanak":"HMK 361","tbk353":false},{"kod":"S-8","kol":"hukuk","islem":"Temyize cevap","baslangic":"Temyiz dilek\u00e7esinin tebli\u011fi","dayanak":"HMK 366 \u2192 347/2","tbk353":false},{"kod":"S-9","kol":"hukuk","islem":"Eski h\u00e2le getirme talebi","baslangic":"Engelin ortadan kalkmas\u0131","dayanak":"HMK 96/1","tbk353":false},{"kod":"S-10","kol":"icra","islem":"\u015eikayet","baslangic":"\u0130\u015flemin \u00f6\u011frenilmesi","dayanak":"\u0130\u0130K 16","tbk353":false},{"kod":"S-11","kol":"icra","islem":"\u00d6deme emrine itiraz (genel haciz)","baslangic":"\u00d6deme emrinin tebli\u011fi","dayanak":"\u0130\u0130K 62","tbk353":false},{"kod":"S-12","kol":"icra","islem":"Kambiyo: \u015fikayet / imza itiraz\u0131 / borca itiraz","baslangic":"\u00d6deme emrinin tebli\u011fi","dayanak":"\u0130\u0130K 168/3-5","tbk353":false},{"kod":"S-13","kol":"icra","islem":"Kambiyo: \u00f6deme","baslangic":"\u00d6deme emrinin tebli\u011fi","dayanak":"\u0130\u0130K 168/2","tbk353":false},{"kod":"S-14","kol":"icra","islem":"\u0130tiraz\u0131n iptali davas\u0131","baslangic":"\u0130tiraz\u0131n tebli\u011fi","dayanak":"\u0130\u0130K 67","tbk353":false},{"kod":"S-15","kol":"icra","islem":"\u0130tiraz\u0131n kald\u0131r\u0131lmas\u0131","baslangic":"\u0130tiraz\u0131n tebli\u011fi","dayanak":"\u0130\u0130K 68","tbk353":false},{"kod":"S-16","kol":"icra","islem":"\u0130cra mahkemesi karar\u0131na istinaf","baslangic":"Karar\u0131n tebli\u011fi","dayanak":"\u0130\u0130K 363","tbk353":false},{"kod":"S-17","kol":"icra","islem":"BAM karar\u0131na temyiz (icra)","baslangic":"Karar\u0131n tebli\u011fi","dayanak":"\u0130\u0130K 364","tbk353":false},{"kod":"S-18","kol":"idari","islem":"Dava a\u00e7ma (idare mahkemesi / Dan\u0131\u015ftay)","baslangic":"Yaz\u0131l\u0131 bildirim","dayanak":"\u0130YUK 7","tbk353":false},{"kod":"S-19","kol":"idari","islem":"Dava a\u00e7ma (vergi mahkemesi)","baslangic":"Tebli\u011f / tahakkuk / tahsilat (\u0130YUK 7/2-b)","dayanak":"\u0130YUK 7","tbk353":false},{"kod":"S-21","kol":"idari","islem":"Z\u0131mni ret (cevaps\u0131z ba\u015fvuru)","baslangic":"\u0130dareye ba\u015fvuru","dayanak":"\u0130YUK 10/2","tbk353":false},{"kod":"S-23","kol":"idari","islem":"Savunma / cevap","baslangic":"Tebli\u011f","dayanak":"\u0130YUK 16/3","tbk353":false},{"kod":"S-23E","kol":"idari","islem":"Savunma / cevap uzatmas\u0131 (\u00fcst s\u0131n\u0131r)","baslangic":"\u0130lk s\u00fcrenin bitimi","dayanak":"\u0130YUK 16/3","tbk353":false},{"kod":"S-24","kol":"idari","islem":"\u0130stinaf","baslangic":"Karar\u0131n tebli\u011fi","dayanak":"\u0130YUK 45","tbk353":false},{"kod":"S-25","kol":"idari","islem":"Temyiz","baslangic":"Karar\u0131n tebli\u011fi","dayanak":"\u0130YUK 46","tbk353":false},{"kod":"S-26","kol":"ceza","islem":"\u0130tiraz","baslangic":"Karar\u0131n \u00f6\u011frenilmesi","dayanak":"CMK 268","tbk353":false},{"kod":"S-27","kol":"ceza","islem":"\u0130stinaf","baslangic":"Gerek\u00e7eli h\u00fckm\u00fcn tebli\u011fi","dayanak":"CMK 273","tbk353":false},{"kod":"S-28","kol":"ceza","islem":"Temyiz","baslangic":"Gerek\u00e7eli h\u00fckm\u00fcn tebli\u011fi","dayanak":"CMK 291","tbk353":false},{"kod":"S-29","kol":"tahliye","islem":"Temerr\u00fct ihtar\u0131: \u00f6deme s\u00fcresi (konut / \u00e7at\u0131l\u0131 i\u015fyeri)","baslangic":"Yaz\u0131l\u0131 bildirimin yap\u0131ld\u0131\u011f\u0131 tarih","dayanak":"TBK 315","tbk353":false},{"kod":"S-30","kol":"tahliye","islem":"Temerr\u00fct ihtar\u0131: \u00f6deme s\u00fcresi (di\u011fer kiralar)","baslangic":"Yaz\u0131l\u0131 bildirimin yap\u0131ld\u0131\u011f\u0131 tarih","dayanak":"TBK 315","tbk353":false},{"kod":"S-31","kol":"tahliye","islem":"\u00d6zenle kullanma ayk\u0131r\u0131l\u0131\u011f\u0131n\u0131 giderme ihtar\u0131 (konut / \u00e7at\u0131l\u0131 i\u015fyeri)","baslangic":"\u0130htar\u0131n yap\u0131lmas\u0131","dayanak":"TBK 316","tbk353":false},{"kod":"S-32","kol":"tahliye","islem":"Tahliye taahh\u00fcd\u00fcne dayanarak icra / dava","baslangic":"Taahh\u00fct edilen bo\u015faltma tarihi","dayanak":"TBK 352/1","tbk353":true},{"kod":"S-33","kol":"tahliye","islem":"\u0130ki hakl\u0131 ihtar nedeniyle tahliye davas\u0131","baslangic":"Kira s\u00fcresinin bitimi (1 y\u0131ldan uzun kirada: ihtarlar\u0131n yap\u0131ld\u0131\u011f\u0131 kira y\u0131l\u0131n\u0131n bitimi)","dayanak":"TBK 352/2","tbk353":true},{"kod":"S-34","kol":"tahliye","islem":"Gereksinim / yeniden in\u015fa nedeniyle tahliye davas\u0131","baslangic":"Belirli s\u00fcreli s\u00f6zle\u015fmede s\u00fcrenin sonu","dayanak":"TBK 350","tbk353":true},{"kod":"S-35A","kol":"tahliye","islem":"Yeni malik gereksinimi: kirac\u0131ya yaz\u0131l\u0131 bildirim","baslangic":"Edinme tarihi","dayanak":"TBK 351/1","tbk353":false},{"kod":"S-35B","kol":"tahliye","islem":"Yeni malik gereksinimi: davan\u0131n a\u00e7\u0131labilece\u011fi en erken tarih","baslangic":"Kirac\u0131ya bildirim","dayanak":"TBK 351/1","tbk353":false},{"kod":"S-36","kol":"tahliye","islem":"Yeni malik gereksinimi: s\u00f6zle\u015fme bitimine dayanan dava","baslangic":"S\u00f6zle\u015fme s\u00fcresinin bitimi","dayanak":"TBK 351/2","tbk353":true},{"kod":"S-37A","kol":"tahliye","islem":"Tahliye talepli kira takibinde \u00f6deme emrine itiraz","baslangic":"\u00d6deme emrinin tebli\u011fi","dayanak":"\u0130\u0130K 269","tbk353":false},{"kod":"S-37B","kol":"tahliye","islem":"Tahliye talepli kira takibinde itiraz\u0131n kald\u0131r\u0131lmas\u0131","baslangic":"\u0130tiraz\u0131n tebli\u011fi","dayanak":"\u0130\u0130K 269","tbk353":false},{"kod":"S-38A","kol":"tahliye","islem":"S\u00fcresi biten kiran\u0131n icra yoluyla tahliyesini isteme","baslangic":"Kira s\u00fcresinin bitimi","dayanak":"\u0130\u0130K 272","tbk353":false},{"kod":"S-38B","kol":"tahliye","islem":"Tahliye emrinden sonra bo\u015faltma ve teslim","baslangic":"Tahliye emrinin tebli\u011fi","dayanak":"\u0130\u0130K 272","tbk353":false},{"kod":"S-39A","kol":"tahliye","islem":"Kirac\u0131n\u0131n uzamay\u0131 \u00f6nleyen bildirimi (en ge\u00e7)","baslangic":"Belirli s\u00fcreli s\u00f6zle\u015fmenin bitimi","dayanak":"TBK 347","tbk353":false},{"kod":"S-39B","kol":"tahliye","islem":"10 y\u0131ll\u0131k uzamadan sonra kiraya verenin bildirimi (en ge\u00e7)","baslangic":"Uzama y\u0131l\u0131n\u0131n bitimi","dayanak":"TBK 347","tbk353":false}];
+  var tg = window.Telegram && window.Telegram.WebApp;
+  // Klavye düğmesinden açılan Mini App'te initData BOŞ gelir (FaizKiraBotu 15.11 dersi) ⇒
+  // Telegram içinde olmayı birden çok işaretten anla: köprü, platform, initData.
+  var kopru = !!(window.TelegramWebviewProxy ||
+                 (window.external && typeof window.external.invoke !== "undefined"));
+  var platform = tg && tg.platform ? tg.platform : "yok";
+  var telegramda = !!(tg && (kopru || (platform !== "unknown" && platform !== "yok") || tg.initData));
+  var TANI = "sürüm " + SURUM + " · platform " + platform + " · köprü " + (kopru ? "var" : "yok");
+  if (tg) { tg.ready(); tg.expand(); }
+  function $(id) { return document.getElementById(id); }
+
+  function secenek(sel, deger, yazi) {
+    var o = document.createElement("option"); o.value = deger; o.textContent = yazi; sel.appendChild(o);
+  }
+  function kural(kod) {
+    for (var i = 0; i < KURALLAR.length; i++) if (KURALLAR[i].kod === kod) return KURALLAR[i];
+    return null;
+  }
+  KOLLAR.forEach(function (k) { secenek($("kol"), k[0], k[1]); });
+
+  function islemleri_doldur() {
+    var kol = $("kol").value, sel = $("kod");
+    sel.innerHTML = "";
+    KURALLAR.forEach(function (k) { if (k.kol === kol) secenek(sel, k.kod, k.kod + " " + k.islem); });
+    secenek(sel, "SERBEST", "✏️ Hâkimin verdiği / serbest süre");
+    guncelle();
+  }
+  function guncelle() {
+    var k = kural($("kod").value);
+    $("a_serbest").hidden = !!k;
+    $("kural_bilgi").textContent = k ? (k.dayanak + " · Başlangıç: " + k.baslangic) : "Süreyi ve birimini yazın.";
+    $("a_353").hidden = !(k && k.tbk353);
+    if ($("a_353").hidden) $("b353").checked = false;
+    $("l_tarih").textContent = $("tur_e").checked ? "E-tebligatın ULAŞTIĞI tarih" : "Başlangıç / tebliğ tarihi";
+  }
+  function hata(id, metin) { $("h_" + id).textContent = metin || ""; }
+
+  function topla() {
+    var tamam = true;
+    hata("tarih"); hata("miktar"); hata("kod");
+    var v = { v: SURUM, kod: $("kod").value, tarih: $("tarih").value, e: $("tur_e").checked,
+              b353: $("b353").checked };
+    if (!kural(v.kod) && v.kod !== "SERBEST") { hata("kod", "İşlem seçin."); tamam = false; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v.tarih)) { hata("tarih", "Tarihi seçin."); tamam = false; }
+    if (v.kod === "SERBEST") {
+      var m = $("miktar").value.trim();
+      if (!/^\d{1,3}$/.test(m) || parseInt(m, 10) < 1) { hata("miktar", "Süre 1–999 arası tam sayı olmalı."); tamam = false; }
+      v.kol = $("kol").value; v.miktar = parseInt(m, 10); v.birim = $("birim").value;
+    }
+    return tamam ? v : null;
+  }
+  function gonder(e) {
+    if (e) e.preventDefault();
+    var v = topla();
+    if (!v) { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error"); return; }
+    var veri = JSON.stringify(v);
+    if (telegramda) { tg.sendData(veri); }
+    else { $("onizleme").textContent = "Önizleme (Telegram dışında gönderilmez):\n" + veri + "\n\nTanı: " + TANI; }
+  }
+
+  $("kol").addEventListener("change", islemleri_doldur);
+  $("kod").addEventListener("change", guncelle);
+  $("tur_f").addEventListener("change", guncelle);
+  $("tur_e").addEventListener("change", guncelle);
+  $("form").addEventListener("submit", gonder);
+  if (telegramda) {
+    $("gonder").hidden = true;
+    tg.MainButton.setText("Hesapla");
+    tg.MainButton.show();
+    tg.MainButton.onClick(gonder);
+  }
+  $("surum").textContent = "Form sürümü " + SURUM + (telegramda ? " · Telegram ✓" : " · Telegram dışı");
+  islemleri_doldur();
+})();
+</script>
+</body>
+</html>
